@@ -444,7 +444,7 @@ def test_in_all_images(processors: np.ndarray, folder='test_images', cmap=None,
                        ):
     nrows, ncols = processors.shape
     for fname in glob.glob(folder + os.sep + '*.jpg'):
-        fig, axes = plt.subplots(nrows, ncols, figsize=(24, 9))
+        fig, axes = plt.subplots(nrows, ncols, figsize=(24, 18))
         fig.suptitle(fname)
         fig.tight_layout()
         img = mpimg.imread(fname)
@@ -506,13 +506,14 @@ def test_perspective_transform():
                        output_prefix='test_perspective_')
 
 
-def test_pipeline():
-    pipeline = create_full_pipeline(debug=True, single_images=True)
+def test_pipeline(do_overlay: bool = True):
+    pipeline = create_full_pipeline(debug=True, single_images=True, do_overlay=do_overlay)
     funcs = np.array([[pipeline, ], ])
-    test_in_all_images(funcs, output_prefix='test_full_pipeline_')
+    output_prefix = 'test_full_pipeline_' if do_overlay else 'test_pipeline_raw_'
+    test_in_all_images(funcs, output_prefix=output_prefix)
 
 
-def create_full_pipeline(debug: bool = True, single_images: bool = False) -> ImageProcessor:
+def create_full_pipeline(debug: bool = True, single_images: bool = False, do_overlay: bool = True) -> ImageProcessor:
     cal = CameraCalibration()
     cal.load()
 
@@ -528,7 +529,7 @@ def create_full_pipeline(debug: bool = True, single_images: bool = False) -> Ima
     image_threshold.checkpoint_name = 'lane_detection'
     pipeline.add(image_threshold)
     pipeline.add(lane_finder.get_find_lanes_as_processor())
-    if not single_images:
+    if do_overlay:
         pipeline.add(pt.get_restore_as_processor())
         pipeline.add(CombineImages(source_name='calibrated'))
     pipeline.add(WriteInfo(lane_finder))
@@ -545,12 +546,35 @@ def run_full_pipeline(video_file='project_video.mp4', out_folder='./output_video
     processed_video.write_videofile(out_folder + os.sep + video_file, audio=False)
 
 
+def print_help():
+    """Print the command line help"""
+    print("""
+Usage: proj.py [--test [cal | transf | perspective | pipeline]] [cal | FILE]
+Process a movie and generate another movie with the lane marking detection info.
+
+Usage for movies (results always saved on folder ./output_movies):
+    proj.py             # Process the file project_video.mp4
+    proj.py <file.mp4>  # Process the file
+    
+Usage for saving calibration information:
+    proj.py cal  # Generates calibration information and save to calibration.pk
+
+Usage for testing (images saved to ./output_images):
+    proj.py --test cal                    # Test the calibration step
+    proj.py --test transf                 # Test the lane pixel detection step
+    proj.py --test perspective            # Test the perspective transformation step
+    proj.py --test pipeline [no_overlay]  # Test the full pipeline on static images.
+""")
+
+
 if __name__ == '__main__':
     import sys
 
+    # FIXME: Use argparse to implement it
     if len(sys.argv) > 1 and sys.argv[1] == '--test':
         if not len(sys.argv) > 2:
             print('--test what?')
+            print_help()
             exit(1)
         to_test = sys.argv[2]
         if to_test == 'cal':
@@ -560,9 +584,11 @@ if __name__ == '__main__':
         elif to_test == 'perspective':
             test_perspective_transform()
         elif to_test == 'pipeline':
-            test_pipeline()
+            do_overlay = (len(sys.argv) == 3) or sys.argv[3] != 'no_overlay'
+            test_pipeline(do_overlay=do_overlay)
         else:
             print('Option not understood: %s' % (' '.join(sys.argv[1:])))
+            print_help()
             exit(1)
     elif len(sys.argv) > 1 and sys.argv[1] == 'cal':
         run_calibration_and_save()
@@ -570,4 +596,3 @@ if __name__ == '__main__':
         video_filename = sys.argv[1] if len(sys.argv) > 1 else 'project_video.mp4'
         print('Running full pipeline in file %s' % video_filename)
         run_full_pipeline(video_file=video_filename)
-        print('Unknown option')

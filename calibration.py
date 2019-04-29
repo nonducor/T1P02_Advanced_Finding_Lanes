@@ -102,13 +102,13 @@ def test_calibration():
     cal = CameraCalibration()
     cal.calibrate(glob.glob('./camera_cal/calibration*.jpg'))
 
-    fig, (ax1, ax2) = plt.subplots(1, 2)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
     orig_img = cv2.imread('./camera_cal/calibration3.jpg')
     ax1.imshow(orig_img)
     ax1.set_title('Before calibration')
     ax2.imshow(cal.undistort(cv2.imread('./camera_cal/calibration3.jpg')))
     ax2.set_title('After calibration')
-    plt.savefig('output_images/compare_calibration.png')
+    plt.savefig('output_images/compare_calibration.png', bbox_inches='tight')
     plt.show()
 
 

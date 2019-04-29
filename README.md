@@ -1,6 +1,6 @@
 ## Writeup Advanced Lane Finding
 
-
+_Note_: This code requires Python 3.6.
 
 [//]: # (Image References)
 
@@ -10,11 +10,12 @@
 [perspective1]: ./output_images/test_perspective_straight_lines2.jpg "Perspective transform"
 [pipe1]: ./output_images/test_full_pipeline_straight_lines2.jpg "Full pipeline straigh lane"
 [pipe2]: ./output_images/test_full_pipeline_test2.jpg "Full pipeline curve"
+[pipe_raw1]: ./output_images/test_pipeline_raw_straight_lines2.jpg "Full pipeline straight lane raw"
+[pipe_raw2]: ./output_images/test_pipeline_raw_test2.jpg "Full pipeline curve  raw"
 [video1]: ./output_videos/project_video.mp4 "Video"
 
 
 ### Code overview
-----
 
 The code is divided in 4 files:
     proj.py: main file
@@ -46,9 +47,9 @@ Contains a class called `PerspectiveTransform` that wraps around the cv2 methods
 #### `proj.py`
 Main file for this project. Contains the lane finding algorithm, perspective transformation, test pipelines and command line argument parsing.
 
-### Camera Calibration
 ----
 
+### Camera Calibration
 The code for calibration is on file `calibration.py`. On the method `calibrate` of the class `CameraCalibration`, a list of file names can be passed. Each file is expected to contain a checkerboard pattern of `nx` x `ny` corners (in this case, 9x6), acquired with the same camera. The object points are assumed to be in a flat plane at z=0, with the (x, y) coordinates coincident with the corner coordinates (e.g. (1,1), (1,2) etc).
 
 When the code is run, `objpoints` is appended with a copy of these ideal object points while `imgpoints` is appended with the chessboard corners found on the image (only when the corners are successfully found). The figure below shows an example of corners being detected on an image. 
@@ -69,23 +70,24 @@ to save the calibration data to the file `calibration.pk` or
     python3 proj.py --test cal
 if it is desired to show the intermediate steps on the screen and save the images used on this report.
 
+----
 
 ### Perspective transformation
 
 The class `PerspectiveTransform` in file `perspective.py` wraps the perspective transformation operations. To find the `src` points, trial and error was used. The goal was to map a stripe that is slightly larger than a straight lane to a bird's eye view of the lane. The mapping was found out by using a calibrated image and then testing on all images in `test_images` folder.
 
-The class constructor calculates the transformation matrices and the class offers convenience methods to transform and restore an image (restoration is useful for projecting back the results over the original image). It also can provide both methods as wrapped `ImageProcessor`s for usage in a pipeline.
+The class constructor calculates the transformation matrices and the class offers convenience methods to transform and restore an image (restoration is useful for projecting back the results over the original image). It also can provide both methods wrapped in `ImageProcessor`s for usage in a pipeline.
 
 The parameters used on the perspective transformation were hand-picked, by analysing the straight line pictures, and are the following:
 
-| Source        | Destination   | 
-|:-------------:|:-------------:| 
-| 224, 719      | 300, 720      | 
-| 619, 440      | 300, 0        |
-| 682, 440      | 980, 0        |
-| 1100, 719     | 980, 720      |
+| Source (x, y) | Destination (x, y) | 
+|:-------------:|:------------------:| 
+| 224, 719      | 300, 720           | 
+| 619, 440      | 300, 0             |
+| 682, 440      | 980, 0             |
+| 1100, 719     | 980, 720           |
 
-To test the results, there is a testing function that can be called with:
+To test the results, the testing function can be called with:
 
     python3 proj.py --test perspective
     
@@ -94,53 +96,52 @@ The figure below shows the result for the one of the figures. The blue parallelo
 ![Perspective transform][perspective1]
 
 
-### Image processing for lane detection
+### Lane pixel identification
 ----
 
-The identification of the most adequate image transformation for lane detection was done by using a lot of trial and error. To facilitate this trial and error, a small test infrastructure was developed.
+The identification of the most adequate image transformation for lane detection was done using a lot of trial and error. To facilitate this trial and error, a small test infrastructure was developed.
 
 First, on the file `image_analysis.py` several processing elements were implemented, each with either a simple transformation or a simple combination of transformations. Then, several tries are assembled in a table and plotted for comparison, using the test images. This test can be accessed by:
     
     python3 proj.py --test transf
     
-One example of the pipeline result can be seen in the figure below:
+One example of the pipeline result can be seen in the figure below.
 
 ![Transformed images][transf1]
 
-The transformations are overlaid in red over the original image to ease the interpretation of the results and to aid in visually checking if the detected edges are the correct ones. The testing pipeline can be found in function `test_transform` on file `proj.py`. The images are first undistorted (the undistortion step of the pipeline is added on the function `test_in_all_images`. This function receives an array of transformations and applies these transformation for all test images, showing the result for each image.
+The transformations are overlaid in red over the original image to aid in visually checking if the detected edges are the correct ones. The testing pipeline can be found in function `test_transform` on file `proj.py`. The images are first undistorted (the undistortion step of the pipeline is added on the function `test_in_all_images`). This function receives an array of transformations and applies these transformation for all test images, showing the result for each image.
 
 The chosen transformation is a combination of color-base and gradient based transformations. The processor implementing this transformation is on file `image_analysis.py`, in class `CombinedAnalysis`. This class implements a combined binary detection, using other detectors, according to the following formula:
 
     Part_of_lane_marking = (<S Threshold> and <R Threshold>) or
-                                                ((<gradx> and <grady>) or (<mag_binary> and <dir_binary>))
+                            ((<gradx> and <grady>) or (<mag_binary> and <dir_binary>))
 
-Each transformation will be explained in detail below. As already noted, the parameters were all found by trial and error.
+The parameters were all found by trial and error. The transformations are:
 
-1. Color thresholding: two color thresholding are used, one on the "color" S on the HLS space and the other on the color red on the RGB space.
-    1. On the HLS space, all pixels with saturation values above 90 are selected. This usually does a good job in good lighting conditions, but tends to select a lot of pixels when there are shadows involved.
-    1. To help alleviate the problem, this detection is "anded" with a red threshold. All pixels with a valor of red above 180 are selected. This helps, for example, remove saturated colors that are not white.
+1. Color thresholding: two color thresholding are used, one on the "color" S on the HLS space and the other on the color red on the RGB space. The class implementing the combined S & R detection is `SRThreshold`. It combines the results of two simple thresholdings:
+    1. On the HLS space, all pixels with saturation values above 90 are selected. This usually does a good job in good lighting conditions, but tends to select a lot of pixels when there are shadows involved. This is implemented by class `SChannelThreshold`.
+    1. To help alleviate the problem, this detection is "anded" with a red threshold. All pixels with a valor of red above 180 are selected. This helps, for example, remove saturated colors that are not white. Implemented in `RChannelThreshold`.
     
-1. The <grad{x,y}> Sobel processors apply a threshold over the gradient on the x and y directions. If the gradient is withing a given threshold for both cases, then it is considered accepted. For this combination, a smoothing kernel of 7 pixels is used and a threshold of (15, 70) is used. The limits on the threshold are inclusive.
+1. The <grad{x,y}> Sobel processors apply a threshold over the gradient on the x and y directions. If the gradient is withing a given threshold for both cases, then it is considered accepted. For this combination, a smoothing kernel of 7 pixels is used and a threshold of (15, 70) is used. The limits on the threshold are inclusive. In class `SobelThreshold`.
 
-1. The magnitude processor calculates the absolute magnetude of the gradient (using Sobel derivatives on the x and y directions) and selected the pixels within a given threshold. The threshold is scaled in the sense that the highest gradient in the image is used to set the value of 255. The threshold used on this application was (15, 70), with a smoothing kernel of 9 pixels.
+1. The magnitude processor calculates the absolute magnetude of the gradient (using Sobel derivatives on the x and y directions) and selected the pixels within a given threshold. The threshold is scaled in the sense that the highest gradient in the image is used to set the value of 255. The threshold used on this application was (15, 70), with a smoothing kernel of 9 pixels. In class `MagnitudeThreshold`.
 
-1. The directional processor uses the Sobel derivatives to calculate the absolute direction of the derivativa and selects those points that are within a given angular range. The intuition is that lanes will mostly be on an almost "vertical" angle on the image, so looking for high derivatives perpendicular to the expected direction of the lanes should be a good detector os lane marking frontiers. The main issue with this detector is that it is quite noisy (as can be seen on the figure above). Thus, it is combined with the threshold processor to detect only the best possibilities.
+1. The directional processor uses the Sobel derivatives to calculate the absolute direction of the derivativa and selects those points that are within a given angular range. The intuition is that lanes will mostly be on an almost "vertical" angle on the image, so looking for high derivatives perpendicular to the expected direction of the lanes should be a good detector os lane marking frontiers. The main issue with this detector is that it is quite noisy (as can be seen on the figure above). Thus, it is combined with the threshold processor to detect only the best possibilities. In class `DirectionalThreshold`.
 
 
 
-### Pipeline
 ----
-
+### Pipeline
 #### Basic Pipeline
-The pipeline is composed of the following steps, in order (it is created by the function `create_full_pipeline` in `proj.py`:
-1. Apply image undistortion (from camera calibration) (and checkpoint the result as `calibrated` to be combined in the future with the image processing steps.
+The pipeline is composed of the following steps, in order (it is created by the function `create_full_pipeline` in `proj.py`):
+1. Apply image undistortion (from camera calibration) and checkpoint the result as `calibrated` to be combined in the future with the image processing steps.
 1. Do a perspective transformation to get a bird eye view from the relevant parts of the image.
 1. Apply the relevant image transformation to get the basis for lane detection. Checkpoint it on the pipeline as `lane_detection`.
 1. Run the main lane finding algorithm on the resulting image (from a `LaneFinding` instance)
 1. Restore the perspective of the image to allow overlaying it to the original image
 1. Combine the processed image to the original `calibrated` image
 1. Write the calculated radius of curvature and offset from lane center to the image
-1. If debugging information is required, plot the histogram and calculated lane center on the bottom of the image. This is not the same information as used by the `lane_detection` instance, but it is useful for understanding how stable the lane detection step is (if one of the sides of the histogram is too small or too wide, it may be an error indication).
+1. If debugging information is required, plot the histogram and calculated lane center on the bottom of the image. This is not the same information as used by the `lane_detection` instance, but it is useful for understanding how stable the lane detection step is (if one of the sides of the histogram is too small or too wide, it may indicate a challenging frame).
 
 
 Since the full pipeline is represented as an image processor, it can be applied to the test images or to a movie easily. When applied to individual images, it is importante to turn off the "statefulness" of the lane detection, so it doesn't use the previous detections to bootstrap the current one. Also, when images are used the reverse perspective transform is not applied and the image is not overlaid back to the camera image. This allows an easier debugging of issues.
@@ -149,7 +150,7 @@ Since the full pipeline is represented as an image processor, it can be applied 
 ### Lane finding algorithm
 
 The lane finding alorithm is implemented by 3 classes, all on file `proj.py`:
-* `LaneFindingConfig`: contains useful parameters for the algorithms. Is a data holder class and it provides no logic. Of notice, the geometric parameters of the lane are: 3.7 m of width (from US standard lanes) and 40.0 m to the "horizon" (the end of the perspective transform window). This was measured considering that, according to the US standard, the distance between the beginning of each segment in the broken lane markings is 12 m and slight less then 4 markings can be seen (the perspective transformed images are specially good for measuring it).
+* `LaneFindingConfig`: contains useful parameters for the algorithms. Is a data holder class and it provides no logic. Of notice, the geometric parameters of the lane are: 3.7 m of width (from US standard lanes) and 40.0 m to the "horizon" (the end of the perspective transform window). This was measured considering that, according to the US standard, the distance between the beginning of each segment in the broken lane markings is 12 m and slight less then 4 markings can be seen (the perspective transformed images are especially good for measuring it).
 
 * `Lane`: this class holds data and functions useful for, given a starting point for a lane marking, to find it on an image and generate a 2nd order approximation for it. It also implements some crude estimation of the stability of the detection, to be used to select between simpler or more complex algorithms for lane detection.
 
@@ -173,11 +174,17 @@ All parameters for the histogram detection are configurable from `LaneFindingCon
 
 #### Application to single images
 
+By using the command below, the full pipeline can be tested on the static images:
+
+    python3 proj.py --test pipeline
+
+If the `no_overlay` option is used, the information is not overlaid back on the original image. This is helpful in debugging.
+
 You can see an example of the pipeline being applied to a single image below.
 
 ![Pipeline single image straight lane][pipe1]
 
-When being used on single images, the processed image is not overlaid to the original image, to allow an easier debugging. The histogram is displayed on the bottom part of the image. The histogram shows the two peaks that were identified with a lane (in red) and the identified center of the lane (in purple).
+The histogram is displayed on the bottom part of the image, for debugging purposes. The histogram shows the two peaks that were identified with a lane (in red) and the identified center of the lane (in purple).
 
 On the image, the color convention is:
 * Red: pixels selected by the image processing pipeline
@@ -189,9 +196,9 @@ An example of a curving lane can be seen in:
 
 ![Pipeline single image curving lane][pipe2]
 
-These images can be generated with the command:
+Analyzing the images without projecting back to the scene is quite helpful also. The image below is the same case as the curving strip above. It is easier to see which pixels in each lane marking are being used for interpolation:
 
-    python3 proj.py --test pipeline
+![Pipeline single image curving lane][pipe_raw2]
 
 
 #### Application to a movie
